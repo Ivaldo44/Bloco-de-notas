@@ -38,25 +38,43 @@ export default function App() {
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [viewingEmployee, setViewingEmployee] = useState<Employee | null>(null);
   const [newNote, setNewNote] = useState('');
+  const [email, setEmail] = useState('');
+  const [isLoginLoading, setIsLoginLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSupabaseConfigured, setIsSupabaseConfigured] = useState(false);
+  const [user, setUser] = useState<any>(null);
 
-  // Check if Supabase is configured
+  // Check if Supabase is configured and handle Auth state
   useEffect(() => {
     const url = import.meta.env.VITE_SUPABASE_URL;
     const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
     setIsSupabaseConfigured(!!(url && key));
+
+    if (supabase) {
+      // Get initial session
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        setUser(session?.user ?? null);
+      });
+
+      // Listen for auth changes
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        setUser(session?.user ?? null);
+      });
+
+      return () => subscription.unsubscribe();
+    }
   }, []);
 
   // Load data
   useEffect(() => {
     const loadData = async () => {
       setIsLoading(true);
-      if (isSupabaseConfigured && supabase) {
+      if (isSupabaseConfigured && supabase && user) {
         try {
           const { data, error } = await supabase
             .from('employees')
             .select('*')
+            .eq('user_id', user.id) // FILTRO POR USUÁRIO
             .order('name');
           
           if (error) throw error;
@@ -67,6 +85,8 @@ export default function App() {
           console.error('Supabase fetch error, falling back to localStorage:', e);
           loadFromLocalStorage();
         }
+      } else if (!user) {
+        setEmployees([]); // Clear if not logged in
       } else {
         loadFromLocalStorage();
       }
@@ -117,15 +137,16 @@ export default function App() {
     if (editingEmployee) {
       const updatedEmployee = { ...editingEmployee, ...employeeData };
       
-      if (isSupabaseConfigured && supabase) {
+      if (isSupabaseConfigured && supabase && user) {
         const { error } = await supabase
           .from('employees')
           .update(updatedEmployee)
-          .eq('id', editingEmployee.id);
+          .eq('id', editingEmployee.id)
+          .eq('user_id', user.id); // Segurança extra
         
         if (error) {
           console.error('Supabase update error:', error);
-          alert('Erro ao atualizar no Supabase. Salvando localmente.');
+          alert('Erro ao atualizar no Supabase.');
         }
       }
 
@@ -143,14 +164,14 @@ export default function App() {
         avatar: `https://picsum.photos/seed/${Math.random()}/200/200`
       };
 
-      if (isSupabaseConfigured && supabase) {
+      if (isSupabaseConfigured && supabase && user) {
         const { error } = await supabase
           .from('employees')
-          .insert([newEmployee]);
+          .insert([{ ...newEmployee, user_id: user.id }]); // VINCULA AO USUÁRIO
         
         if (error) {
           console.error('Supabase insert error:', error);
-          alert('Erro ao inserir no Supabase. Salvando localmente.');
+          alert('Erro ao inserir no Supabase.');
         }
       }
 
@@ -235,6 +256,117 @@ export default function App() {
     setViewingEmployee(prev => prev ? { ...prev, notes: updatedNotes } : null);
   };
 
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supabase || !email.trim()) return;
+    
+    setIsLoginLoading(true);
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: {
+        emailRedirectTo: window.location.origin
+      }
+    });
+    
+    setIsLoginLoading(false);
+    if (error) {
+      alert('Erro ao enviar e-mail: ' + error.message);
+    } else {
+      alert('Link de acesso enviado para o seu e-mail! Verifique sua caixa de entrada.');
+    }
+  };
+
+  const handleLogout = async () => {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+    setEmployees([]);
+    setViewingEmployee(null);
+  };
+
+  if (!user && isSupabaseConfigured) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center">
+          <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <Building2 className="w-10 h-10 text-white" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">Bem-vindo</h2>
+          <p className="text-slate-500 mb-8">Digite seu e-mail para receber um link de acesso privado.</p>
+          
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="text-left space-y-1">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Seu E-mail</label>
+              <input 
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="exemplo@email.com"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+              />
+            </div>
+            <button 
+              type="submit"
+              disabled={isLoginLoading}
+              className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 shadow-lg shadow-indigo-100 disabled:opacity-50"
+            >
+              {isLoginLoading ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  <Mail className="w-5 h-5" />
+                  Receber Link de Acesso
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user && isSupabaseConfigured) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center">
+          <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <Building2 className="w-10 h-10 text-white" />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-900 mb-2">Bem-vindo</h2>
+          <p className="text-slate-500 mb-8">Digite seu e-mail para receber um link de acesso privado.</p>
+          
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="text-left space-y-1">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Seu E-mail</label>
+              <input 
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="exemplo@email.com"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+              />
+            </div>
+            <button 
+              type="submit"
+              disabled={isLoginLoading}
+              className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 shadow-lg shadow-indigo-100 disabled:opacity-50"
+            >
+              {isLoginLoading ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  <Mail className="w-5 h-5" />
+                  Receber Link de Acesso
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
       {/* Sidebar / List */}
@@ -252,6 +384,15 @@ export default function App() {
                 "w-2 h-2 rounded-full",
                 isSupabaseConfigured ? "bg-green-500" : "bg-amber-500"
               )} title={isSupabaseConfigured ? "Supabase Conectado" : "Usando LocalStorage"} />
+              {user && (
+                <button 
+                  onClick={handleLogout}
+                  className="p-2 text-slate-400 hover:text-slate-600 transition-colors"
+                  title="Sair"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
               <button 
                 onClick={() => {
                   setEditingEmployee(null);
