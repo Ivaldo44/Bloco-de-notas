@@ -145,7 +145,7 @@ export default function App() {
     };
 
     loadData();
-  }, [isSupabaseConfigured]);
+  }, [isSupabaseConfigured, user]);
 
   // Save to localStorage as backup/fallback
   useEffect(() => {
@@ -251,14 +251,16 @@ export default function App() {
 
     const updatedNotes = [note, ...viewingEmployee.notes];
     
-    if (isSupabaseConfigured && supabase) {
+    if (isSupabaseConfigured && supabase && user) {
       const { error } = await supabase
         .from('employees')
         .update({ notes: updatedNotes })
-        .eq('id', viewingEmployee.id);
+        .eq('id', viewingEmployee.id)
+        .eq('user_id', user.id);
       
       if (error) {
         console.error('Supabase note update error:', error);
+        alert('Erro ao salvar nota no servidor.');
       }
     }
 
@@ -277,14 +279,16 @@ export default function App() {
 
     const updatedNotes = viewingEmployee.notes.filter(n => n.id !== noteId);
 
-    if (isSupabaseConfigured && supabase) {
+    if (isSupabaseConfigured && supabase && user) {
       const { error } = await supabase
         .from('employees')
         .update({ notes: updatedNotes })
-        .eq('id', employeeId);
+        .eq('id', employeeId)
+        .eq('user_id', user.id);
       
       if (error) {
         console.error('Supabase note delete error:', error);
+        alert('Erro ao excluir nota no servidor.');
       }
     }
 
@@ -322,48 +326,6 @@ export default function App() {
     setEmployees([]);
     setViewingEmployee(null);
   };
-
-  if (!user && isSupabaseConfigured) {
-    return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center">
-          <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-6">
-            <Building2 className="w-10 h-10 text-white" />
-          </div>
-          <h2 className="text-2xl font-bold text-slate-900 mb-2">Bem-vindo</h2>
-          <p className="text-slate-500 mb-8">Digite seu e-mail para receber um link de acesso privado.</p>
-          
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div className="text-left space-y-1">
-              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Seu E-mail</label>
-              <input 
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="exemplo@email.com"
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-              />
-            </div>
-            <button 
-              type="submit"
-              disabled={isLoginLoading}
-              className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all flex items-center justify-center gap-3 shadow-lg shadow-indigo-100 disabled:opacity-50"
-            >
-              {isLoginLoading ? (
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <>
-                  <Mail className="w-5 h-5" />
-                  Receber Link de Acesso
-                </>
-              )}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
 
   if (!user && isSupabaseConfigured) {
     return (
